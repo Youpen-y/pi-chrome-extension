@@ -1,0 +1,16 @@
+{
+  "name": "pi-chrome-extension",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Bring pi coding agent into your browser - summarize, chat, and modify web pages",
+  "scripts": {
+    "dev:extension": "cd extension && npm run dev",
+    "dev:bridge": "cd bridge && npm run dev",
+    "build:extension": "cd extension && npm run build",
+    "build:bridge": "cd bridge && npm run build",
+    "build": "npm run build:bridge && npm run build:extension",
+    "start:bridge": "cd bridge && npm run start"
+  },
+  "keywords": ["pi", "chrome-extension", "ai-assistant", "browser-extension"],
+  "license": "MIT"
+}
