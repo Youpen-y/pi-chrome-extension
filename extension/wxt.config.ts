@@ -16,7 +16,7 @@ export default defineConfig({
     action: {
       default_title: "pi Companion",
     },
-    permissions: ["storage", "sidePanel", "tabs", "activeTab", "scripting", "alarms"],
+    permissions: ["storage", "sidePanel", "tabs", "activeTab", "scripting", "alarms", "debugger"],
     host_permissions: ["<all_urls>"],
     commands: {
       toggle_side_panel: {

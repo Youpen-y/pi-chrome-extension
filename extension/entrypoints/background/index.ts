@@ -382,6 +382,33 @@ export default defineBackground({
           return;
         }
 
+        // ── Inject Script (bypasses page CSP via chrome.scripting.executeScript) ──
+        if (toolName === "inject_script") {
+          const code = args.code as string;
+          if (!code) throw new Error("No code provided");
+          const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+          if (!tab?.id) throw new Error("No active tab");
+          await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            world: "MAIN",
+            func: (src: string) => { const s = document.createElement("script"); s.textContent = src; document.body.appendChild(s); s.remove(); },
+            args: [code],
+          });
+          send({
+            type: "tool_result",
+            toolCallId,
+            content: [{ type: "text", text: "✅ Script executed (via MAIN world)" }],
+            isError: false,
+          });
+          return;
+        }
+
+        // ── Click Element (handled directly by background via CDP) ──
+        if (toolName === "click_element") {
+          await handleClickElement(toolCallId, args);
+          return;
+        }
+
         // ── Normal flow: forward to content script ──
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
         if (!tab?.id) throw new Error("No active tab");
@@ -397,6 +424,87 @@ export default defineBackground({
           type: "tool_result",
           toolCallId,
           content: [{ type: "text", text: `Error: ${(err as Error).message}` }],
+          isError: true,
+        });
+      }
+    }
+
+    /**
+     * Handle click_element tool: find element via content script, then use CDP to dispatch real mouse events.
+     */
+    async function handleClickElement(toolCallId: string, args: Record<string, unknown>) {
+      try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (!tab?.id) throw new Error("No active tab");
+
+        const selector = args.selector as string;
+        const text = args.text as string | undefined;
+        const button = (args.button as string) || "left";
+        const doubleClick = !!args.doubleClick;
+        const waitAfter = (args.waitAfter as number) ?? 1000;
+        const preferNavigate = args.preferNavigate !== false;
+        const timeout = (args.timeout as number) ?? 5000;
+
+        // Step 1: find element via content script
+        const coords = await Promise.race([
+          chrome.tabs.sendMessage(tab.id, { type: "get_element_coords", selector, text }),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), timeout)),
+        ]);
+        if (!coords || (coords as any).error) {
+          throw new Error((coords as any)?.error || `Element not found within ${timeout}ms`);
+        }
+
+        const { x, y, tagName, href } = coords as any;
+
+        // Step 2: Strategy A — <a> link, use navigation
+        if (tagName === "a" && href && preferNavigate) {
+          await chrome.tabs.update(tab.id, { url: href });
+          send({
+            type: "tool_result",
+            toolCallId,
+            content: [{ type: "text", text: `🖱 Clicked <a> link → navigated to ${href}` }],
+            isError: false,
+          });
+          return;
+        }
+
+        // Step 3: Strategy B — CDP real click
+        const target = { tabId: tab.id };
+        await chrome.debugger.attach(target, "1.3");
+
+        try {
+          // Dispatch mouse events
+          const clickEvents = [
+            { type: "mousePressed" as const, x, y, button, clickCount: doubleClick ? 2 : 1 },
+            { type: "mouseReleased" as const, x, y, button, clickCount: doubleClick ? 2 : 1 },
+          ];
+          if (doubleClick) {
+            clickEvents.push(
+              { type: "mousePressed" as const, x, y, button, clickCount: 2 },
+              { type: "mouseReleased" as const, x, y, button, clickCount: 2 },
+            );
+          }
+          for (const evt of clickEvents) {
+            await chrome.debugger.sendCommand(target, "Input.dispatchMouseEvent", evt);
+          }
+        } finally {
+          await chrome.debugger.detach(target).catch(() => {});
+        }
+
+        // Step 4: wait for page reaction
+        if (waitAfter > 0) await new Promise((r) => setTimeout(r, waitAfter));
+
+        send({
+          type: "tool_result",
+          toolCallId,
+          content: [{ type: "text", text: `🖱 Clicked element "${tagName}" at (${Math.round(x)}, ${Math.round(y)})` }],
+          isError: false,
+        });
+      } catch (err) {
+        send({
+          type: "tool_result",
+          toolCallId,
+          content: [{ type: "text", text: `❌ click_element error: ${(err as Error).message}` }],
           isError: true,
         });
       }
@@ -453,6 +561,9 @@ export default defineBackground({
 
         case "clear_messages":
           patch({ messages: [] });
+          if (ws?.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: "new_session" }) + "\n");
+          }
           sendResponse(true);
           break;
 

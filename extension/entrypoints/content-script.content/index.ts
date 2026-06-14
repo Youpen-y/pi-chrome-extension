@@ -248,6 +248,37 @@ export default defineContentScript({
             sendResponse({ pageContext: getPageContext() });
             break;
 
+          case "get_element_coords": {
+            const sel = msg.selector as string;
+            let el = document.querySelector(sel);
+            // If text filter provided, find matching element
+            if (!el && msg.text) {
+              const text = (msg.text as string).toLowerCase();
+              el = Array.from(document.querySelectorAll(sel || "*"))
+                .find((e) => e.textContent?.toLowerCase().includes(text)) ?? null;
+            }
+            if (!el) {
+              sendResponse({ error: `Element not found: ${sel}${msg.text ? ` (text: "${msg.text}")` : ""}` });
+              break;
+            }
+            // Scroll into view
+            el.scrollIntoView({ behavior: "instant", block: "center" });
+            const rect = el.getBoundingClientRect();
+            const tagName = el.tagName.toLowerCase();
+            const text = (el as HTMLElement).innerText?.slice(0, 200) || "";
+            const href = (el as HTMLAnchorElement).href || "";
+            sendResponse({
+              x: rect.left + rect.width / 2 + window.scrollX,
+              y: rect.top + rect.height / 2 + window.scrollY,
+              tagName,
+              text: text.trim(),
+              href,
+              width: rect.width,
+              height: rect.height,
+            });
+            break;
+          }
+
           case "execute_tool": {
             const result = execTool(msg.toolName, msg.args);
             sendResponse({

@@ -40,6 +40,7 @@ export type BridgeToExtension =
   | { type: "queue_update"; steering: string[]; followUp: string[] }
   | { type: "compaction_start"; reason: string }
   | { type: "compaction_end"; result: unknown }
+  | { type: "new_session_ok" }
   | { type: "error"; code: string; message: string }
   | ExtensionUiRequest;
 

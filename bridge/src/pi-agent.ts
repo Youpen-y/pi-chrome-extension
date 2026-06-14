@@ -421,6 +421,30 @@ export class PiAgent {
           "After listing, you can use navigate_to_url to switch to a specific tab by URL.",
         ],
       ),
+
+      // ── Click Tool ───────────────────────────────────────────
+      browserTool(
+        "click_element", "Click Element",
+        "Click an element on the page using a CSS selector. " +
+        "Works with buttons, links, menu items — any visible element. " +
+        "For links (<a> tags), automatically navigates to the href. " +
+        "Generates a real trusted mouse event (isTrusted=true) via Chrome DevTools Protocol.",
+        Type.Object({
+          selector: Type.String({ description: "CSS selector for the element to click (e.g. 'button.submit', '[data-testid=compose]')" }),
+          text: Type.Optional(Type.String({ description: "If set, filters to elements containing this text" })),
+          button: Type.Optional(StringEnum(["left", "right", "middle"] as const, { description: "Mouse button (default: left)" })),
+          doubleClick: Type.Optional(Type.Boolean({ description: "Double-click instead of single (default: false)" })),
+          waitAfter: Type.Optional(Type.Number({ description: "ms to wait after click before returning (default: 1000)" })),
+          preferNavigate: Type.Optional(Type.Boolean({ description: "For <a> links, navigate via chrome.tabs.update instead of click (default: true)" })),
+          timeout: Type.Optional(Type.Number({ description: "ms to wait for element to appear (default: 5000)" })),
+        }),
+        "Click an element on the page",
+        [
+          "Use click_element to interact with buttons, forms, menus, etc.",
+          "For <a> tags the tool automatically navigates instead of clicking.",
+          "After clicking, wait for the page to update before further actions.",
+        ],
+      ),
     ];
   }
 
@@ -436,7 +460,8 @@ You can read the page, tweak its look, and chat about what's on it.
 2. **Change the page** — inject CSS, toggle dark mode, highlight things.
 3. **Navigate** — go to a URL the user gives you (use \`navigate_to_url\`).
 4. **List tabs** — see all open tabs (use \`list_tabs\`).
-5. **Chat** — talk naturally about the content.
+5. **Click** — click buttons, links, menus (use \`click_element\`).
+6. **Chat** — talk naturally about the content.
 
 ## How to talk
 

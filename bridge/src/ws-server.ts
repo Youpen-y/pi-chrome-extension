@@ -273,8 +273,7 @@ export class BridgeServer {
         break;
 
       case "new_session":
-        // For now, just log. Full session management coming in Phase 2.
-        console.log("[bridge] New session requested");
+        this.handleNewSession();
         break;
 
       case "set_model":
@@ -348,6 +347,20 @@ export class BridgeServer {
     } catch (err) {
       console.error("[bridge] abort error:", err);
     }
+  }
+
+  private async handleNewSession(): Promise<void> {
+    console.log("[bridge] New session — disposing old agent and creating fresh one");
+    try {
+      // Dispose old agent
+      this.agent?.dispose();
+    } catch (err) {
+      console.error("[bridge] dispose error:", err);
+    }
+    // Create a fresh agent (new AgentSession = no history)
+    this.agent = await this.createPiAgent();
+    this.broadcast({ type: "new_session_ok" });
+    console.log("[bridge] New session ready");
   }
 
   private handleToolResult(
