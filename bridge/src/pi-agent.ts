@@ -113,6 +113,9 @@ export class PiAgent {
       settingsManager,
       sessionManager: sessionManager ?? SessionManager.inMemory(cwd),
       customTools,
+      // Security: disable built-in tools (read/bash/edit/write) but keep our custom
+      // browser tools. The companion only needs browser interaction — no file/shell access.
+      noTools: "builtin",
     });
 
     this.session = session;

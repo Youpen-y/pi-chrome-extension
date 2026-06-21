@@ -24,6 +24,8 @@ export type BridgeToExtension =
   | { type: "response"; command: string; success: boolean; error?: string; data?: unknown }
   | { type: "agent_start" }
   | { type: "agent_end" }
+  | { type: "turn_start" }
+  | { type: "turn_end" }
   | { type: "message_delta"; delta: string }
   | { type: "message_update"; assistantMessageEvent: AssistantMessageEvent }
   | { type: "tool_call"; toolCallId: string; toolName: string; args: Record<string, unknown> }

@@ -25,7 +25,15 @@ export default defineBackground({
       isProcessing: false,
     };
 
-    const listeners = new Set<(s: AppState) => void>();
+    // Connected side panel ports. We broadcast both full-state snapshots and
+    // lightweight streaming deltas so single large outputs never hit port size limits.
+    const ports = new Set<chrome.runtime.Port>();
+
+    function broadcast(msg: Record<string, unknown>) {
+      for (const port of ports) {
+        try { port.postMessage(msg); } catch { ports.delete(port); }
+      }
+    }
 
     // Load persisted state (survives service worker restarts)
     async function loadPersistedState() {
@@ -54,7 +62,12 @@ export default defineBackground({
     }
 
     function emitState() {
-      for (const fn of listeners) fn(state);
+      broadcast({ type: "state", state });
+    }
+
+    /** Push a single streaming delta — tiny payload, safe regardless of output length. */
+    function emitDelta(messageId: string, delta: string) {
+      broadcast({ type: "delta", messageId, delta });
     }
 
     function patch(partial: Partial<AppState>) {
@@ -209,7 +222,14 @@ export default defineBackground({
 
         case "agent_start":
           patch({ isProcessing: true });
-          pushMessage({ id: crypto.randomUUID(), role: "assistant", content: "", timestamp: Date.now(), isStreaming: true });
+          // Don't create a streaming message here — it's created lazily in appendDelta.
+          // This allows each turn (turn_start) to get its own message bubble.
+          break;
+
+        case "turn_start":
+          // Finalize the current streaming message so the next turn gets a fresh bubble.
+          // This prevents text from multiple turns being concatenated into one message.
+          finalizeStreaming();
           break;
 
         case "agent_end":
@@ -286,13 +306,28 @@ export default defineBackground({
       patch({ messages: msgs });
     }
 
+    /** Tracks which message id we are currently streaming deltas for. */
+    let lastDeltaMessageId: string | null = null;
+
     function appendDelta(delta: string) {
       const msgs = [...state.messages];
       // Find the last streaming assistant message (tool messages may have been pushed after it)
-      const last = msgs.findLast((m) => m.isStreaming);
-      if (last) {
-        last.content += delta;
-        patch({ messages: msgs });
+      let last = msgs.findLast((m) => m.isStreaming);
+      if (!last) {
+        last = { id: crypto.randomUUID(), role: "assistant", content: "", timestamp: Date.now(), isStreaming: true };
+        msgs.push(last);
+      }
+      last.content += delta;
+      state = { ...state, messages: msgs };
+      persistState();
+
+      if (last.id !== lastDeltaMessageId) {
+        // New streaming bubble — panel needs the full state to learn this message exists.
+        lastDeltaMessageId = last.id;
+        emitState();
+      } else {
+        // Same bubble — push only the tiny delta (never triggers port size limits).
+        emitDelta(last.id, delta);
       }
     }
 
@@ -301,6 +336,7 @@ export default defineBackground({
       const last = msgs.findLast((m) => m.isStreaming);
       if (last) {
         last.isStreaming = false;
+        lastDeltaMessageId = null; // next appendDelta will start a fresh bubble
         patch({ messages: msgs });
       }
     }
@@ -516,12 +552,15 @@ export default defineBackground({
 
     chrome.runtime.onConnect.addListener((port) => {
       if (port.name !== "state") return;
-      port.postMessage({ type: "state", state });
-      const fn = (s: AppState) => {
-        try { port.postMessage({ type: "state", state: s }); } catch { listeners.delete(fn); }
-      };
-      listeners.add(fn);
-      port.onDisconnect.addListener(() => listeners.delete(fn));
+      ports.add(port);
+      // Send a full snapshot on connect so the panel is in sync.
+      try {
+        port.postMessage({ type: "state", state });
+      } catch {
+        ports.delete(port);
+        return;
+      }
+      port.onDisconnect.addListener(() => ports.delete(port));
     });
 
     chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
