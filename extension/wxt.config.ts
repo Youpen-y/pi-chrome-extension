@@ -9,12 +9,17 @@ export default defineConfig({
     name: "pi Browser Companion",
     description: "Your AI reading companion - summarize, chat, and customize web design with pi",
     icons: {
-      "16": "icons/icon.svg",
-      "48": "icons/icon.svg",
-      "128": "icons/icon.svg",
+      "16": "icons/icon-16.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png",
     },
     action: {
       default_title: "pi Companion",
+      default_icon: {
+        "16": "icons/icon-16.png",
+        "48": "icons/icon-48.png",
+        "128": "icons/icon-128.png",
+      },
     },
     permissions: ["storage", "sidePanel", "tabs", "activeTab", "scripting", "alarms", "debugger"],
     host_permissions: ["<all_urls>"],

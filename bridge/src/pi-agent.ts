@@ -318,18 +318,53 @@ export class PiAgent {
         "Read page metadata and SEO tags",
       ),
 
+      browserTool(
+        "read_current_css", "Read Current (pi) CSS",
+        "Read ONLY pi's own injected CSS snapshot for this site (the CSS rules you previously injected via modify_page_css / highlight_elements / remove_elements / toggle_dark_mode). " +
+        "Does NOT include the website's own CSS — use read_element_styles for that. " +
+        "Call this BEFORE modify_page_css when you want to ADD to existing styles instead of starting fresh.",
+        Type.Object({}, { description: "Returns pi's saved CSS for this site." }),
+        "Read pi's own injected CSS snapshot",
+        [
+          "read_current_css returns only pi's injected rules, NOT the site's CSS.",
+          "Call read_current_css before modify_page_css to avoid clobbering earlier modifications.",
+          "Each site has ONE CSS snapshot; modify_page_css APPENDS to it.",
+          "To see how the page actually looks, use read_element_styles instead.",
+        ],
+      ),
+
+      browserTool(
+        "read_element_styles", "Read Element Styles",
+        "Read the REAL computed CSS of a specific element on the page. Use this BEFORE modifying CSS to understand how the element is currently styled and avoid specificity wars. " +
+        "Returns: the element's tag/id/class, any inline style, ~30 whitelisted computed properties (color, font, box model, flex/grid layout), " +
+        "CSS custom properties (--vars) in scope, and :root design tokens. Unlike read_current_css, this reflects the SITE's actual styling. " +
+        "Crucial when the page uses !important, high specificity, or a design system you should override idiomatically.",
+        Type.Object({
+          selector: Type.String({ description: "CSS selector targeting the element to inspect (e.g. 'header', '.nav-link', 'h1', '#main')" }),
+        }),
+        "Inspect an element's real computed styles on the page",
+        [
+          "Call read_element_styles before modify_page_css to see how the element is currently styled.",
+          "Use the returned CSS variables / design tokens to write idiomatic overrides.",
+          "Only the first matching element is inspected; for multiple, call repeatedly.",
+          "If the returned values show !important or high specificity, match it in your own rule.",
+        ],
+      ),
+
       // ── Modify Tools ───────────────────────────────────────────
       browserTool(
         "modify_page_css", "Modify Page CSS",
-        "Inject custom CSS into the web page. Use to change colors, fonts, layout, etc.",
+        "Inject custom CSS into the web page. Modifications are PERSISTED per-site (by domain) and survive page refresh. " +
+        "The CSS is APPENDED to the site's existing snapshot (not replaced). Use read_current_css first if you need the current state. " +
+        "Use to change colors, fonts, layout, etc.",
         Type.Object({
-          css: Type.String({ description: "CSS rules to inject" }),
-          revertable: Type.Optional(Type.Boolean({ description: "Whether this can be reverted (default: true)" })),
+          css: Type.String({ description: "CSS rules to inject (appended to the site's saved snapshot)" }),
         }),
         "Inject custom CSS styles to change the page appearance",
         [
           "Use modify_page_css for visual changes like colors, fonts, layout.",
-          "Use valid CSS with complete selectors.",
+          "CSS is persisted per-site and reapplied on refresh.",
+          "To build on existing styles, call read_current_css first.",
         ],
       ),
 

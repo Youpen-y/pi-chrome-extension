@@ -59,6 +59,8 @@
       transition: all 0.1s; color: var(--fg-secondary);
     }
     .icon-btn:hover { background: var(--bg-secondary); border-color: var(--border); color: var(--fg); }
+    .icon-btn.active { background: var(--fg-secondary); color: var(--bg); border-color: var(--fg-secondary); }
+    .icon-btn:disabled { opacity: 0.35; cursor: default; }
 
     /* ─── Page Context Bar ────────────────────────────────────── */
     .page-context {
@@ -301,6 +303,23 @@
       border-radius: 4px;
     }
     .scale-pct:hover { background: var(--bg-secondary); }
+
+    /* ─── Page Mods Preview (inside settings) ─────────────────── */
+    .page-mods-preview {
+      background: var(--bg); color: var(--fg-secondary);
+      border: 1px solid var(--border); border-radius: 4px;
+      padding: 8px; margin: 6px 0;
+      font-size: 11px; font-family: inherit;
+      max-height: 120px; overflow: auto;
+      white-space: pre-wrap; word-break: break-all;
+      display: none;            /* shown only when CSS exists */
+    }
+    .page-mods-preview.has-content { display: block; }
+    .page-mods-actions { display: flex; gap: 8px; }
+    .page-mods-actions .settings-btn { flex: 1; }
+    .page-mods-revert.confirm {
+      background: #4a1d1d; color: #f87171; border-color: #f87171;
+    }
   </style>
 </head>
 <body>
@@ -312,6 +331,7 @@
       <button class="icon-btn" id="btnStop" title="Stop generation" style="display:none">⏹</button>
       <button class="icon-btn" id="btnSummarize" title="Summarize this page">📄</button>
       <button class="icon-btn" id="btnDarkMode" title="Toggle dark mode">🌙</button>
+      <button class="icon-btn" id="btnPageMods" title="Toggle page styles" disabled>🎨</button>
       <button class="icon-btn" id="btnClear" title="Clear chat">🗑️</button>
       <button class="icon-btn" id="btnSettings" title="Settings">⚙️</button>
     </div>
@@ -357,6 +377,15 @@
             <button class="scale-btn" id="scaleDown" title="Smaller">A−</button>
             <span class="scale-pct" id="scalePct" title="Reset to 100%">100%</span>
             <button class="scale-btn" id="scaleUp" title="Larger">A+</button>
+          </div>
+        </div>
+        <div class="settings-field">
+          <label>Page Styles</label>
+          <div class="settings-desc" id="pageModsDesc">CSS modifications for this site. None saved yet.</div>
+          <pre class="page-mods-preview" id="pageModsPreview"></pre>
+          <div class="page-mods-actions">
+            <button class="settings-btn" id="pageModsToggle" disabled>Toggle</button>
+            <button class="settings-btn" id="pageModsRevert" disabled>Revert</button>
           </div>
         </div>
         <div class="settings-field">
@@ -419,6 +448,7 @@
     const btnSettings = document.getElementById("btnSettings");
     const btnSummarize = document.getElementById("btnSummarize");
     const btnDarkMode = document.getElementById("btnDarkMode");
+    const btnPageMods = document.getElementById("btnPageMods");
     const btnStop = document.getElementById("btnStop");
 
     // ─── State ───────────────────────────────────────────────────
@@ -511,8 +541,37 @@
       // Messages
       renderMessages();
 
+      // Page mods button (🎨) — three-state based on state.pageMods
+      updatePageModsButton(state.pageMods);
+
       // Send button
       sendBtn.disabled = !connected || isProcessing || !chatInput.value.trim();
+    }
+
+    function updatePageModsButton(pageMods) {
+      const btn = btnPageMods;
+      const preview = document.getElementById("pageModsPreview");
+      const desc = document.getElementById("pageModsDesc");
+      const toggleBtn = document.getElementById("pageModsToggle");
+      const revertBtn = document.getElementById("pageModsRevert");
+      if (!pageMods || pageMods.count === 0) {
+        btn.disabled = true;
+        btn.textContent = "🎨";
+        if (desc) desc.textContent = pageMods ? `No saved CSS for ${pageMods.origin}.` : "Open a web page to manage its styles.";
+        if (preview) { preview.classList.remove("has-content"); preview.textContent = ""; }
+        if (toggleBtn) toggleBtn.disabled = true;
+        if (revertBtn) revertBtn.disabled = true;
+        return;
+      }
+      btn.disabled = false;
+      btn.textContent = pageMods.applied ? "🎨" : "🖌";
+      if (desc) desc.textContent = `${pageMods.applied ? "Applied" : "Disabled"} · ${pageMods.origin}`;
+      if (preview) {
+        preview.textContent = pageMods.css.slice(0, 2000) + (pageMods.css.length > 2000 ? "\n…" : "");
+        preview.classList.add("has-content");
+      }
+      if (toggleBtn) { toggleBtn.disabled = false; toggleBtn.textContent = pageMods.applied ? "Turn Off" : "Turn On"; }
+      if (revertBtn) revertBtn.disabled = false;
     }
 
     // ─── Handle streaming delta (tiny payload — avoids port size limits) ──
@@ -724,6 +783,35 @@
       if (confirm("Clear all messages?")) {
         chrome.runtime.sendMessage({ type: "clear_messages" }).catch(() => {});
       }
+    });
+
+    // 🎨 Page mods toggle (header button) — single click toggles on/off.
+    btnPageMods.addEventListener("click", () => {
+      chrome.runtime.sendMessage({ type: "toggle_page_mods", action: "toggle" }).catch(() => {});
+    });
+
+    // Settings panel: Page Styles management buttons.
+    document.getElementById("pageModsToggle").addEventListener("click", () => {
+      chrome.runtime.sendMessage({ type: "toggle_page_mods", action: "toggle" }).catch(() => {});
+    });
+
+    // Revert with double-click confirmation (button turns red, must click again).
+    let revertConfirmTimer = null;
+    document.getElementById("pageModsRevert").addEventListener("click", () => {
+      const btn = document.getElementById("pageModsRevert");
+      if (!btn.classList.contains("confirm")) {
+        btn.classList.add("confirm");
+        btn.textContent = "Click again to delete";
+        revertConfirmTimer = setTimeout(() => {
+          btn.classList.remove("confirm");
+          btn.textContent = "Revert";
+        }, 3000);
+        return;
+      }
+      clearTimeout(revertConfirmTimer);
+      btn.classList.remove("confirm");
+      btn.textContent = "Revert";
+      chrome.runtime.sendMessage({ type: "revert_page_mods" }).catch(() => {});
     });
 
     // ─── Settings Overlay ─────────────────────────────────────────

@@ -6,7 +6,7 @@
  */
 
 import { defineBackground } from "wxt/utils/define-background";
-import type { BridgeToExtension, PageContext, AppState, ChatMessage } from "../../src/shared/types";
+import type { BridgeToExtension, PageContext, AppState, ChatMessage, PageModsStatus } from "../../src/shared/types";
 import { storage } from "wxt/utils/storage";
 
 export default defineBackground({
@@ -23,6 +23,7 @@ export default defineBackground({
       pageContext: null,
       messages: [],
       isProcessing: false,
+      pageMods: null,
     };
 
     // Connected side panel ports. We broadcast both full-state snapshots and
@@ -378,6 +379,26 @@ export default defineBackground({
       }
     }
 
+    /** Query the active tab's content script for the current page-mods status. */
+    async function queryPageMods(): Promise<void> {
+      try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (!tab?.id) return;
+        const resp = await Promise.race([
+          chrome.tabs.sendMessage(tab.id, { type: "get_page_mods_status" }),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500)),
+        ]);
+        if (resp && typeof resp === "object" && "origin" in resp) {
+          patch({ pageMods: { origin: resp.origin, count: resp.count, applied: resp.applied, css: resp.css } as PageModsStatus });
+        } else {
+          // Content script unavailable (chrome://, etc.) — mark as unknown.
+          patch({ pageMods: null });
+        }
+      } catch {
+        patch({ pageMods: null });
+      }
+    }
+
     async function forwardToolCall(toolCallId: string, toolName: string, args: Record<string, unknown>) {
       try {
         // ── Navigation (handled directly by background, not content script) ──
@@ -564,6 +585,7 @@ export default defineBackground({
     });
 
     chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+      (async () => {
       switch (msg.type) {
         case "get_state":
           sendResponse(state);
@@ -611,12 +633,44 @@ export default defineBackground({
           if (state.connected) {
             send({ type: "page_context_update", pageContext: msg.pageContext });
           }
+          // Also query the new page's mod status so the 🎨 button reflects it.
+          queryPageMods();
           sendResponse(true);
           break;
+
+        case "page_mods_status":
+          patch({ pageMods: { origin: msg.origin, count: msg.count, applied: msg.applied, css: msg.css } as PageModsStatus });
+          sendResponse(true);
+          break;
+
+        case "toggle_page_mods": {
+          // Forward to content script of active tab.
+          try {
+            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (tab?.id) {
+              await chrome.tabs.sendMessage(tab.id, { type: "toggle_page_mods", action: msg.action });
+            }
+          } catch { /* ignore */ }
+          sendResponse(true);
+          break;
+        }
+
+        case "revert_page_mods": {
+          try {
+            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (tab?.id) {
+              await chrome.tabs.sendMessage(tab.id, { type: "revert_page_mods" });
+            }
+          } catch { /* ignore */ }
+          sendResponse(true);
+          break;
+        }
 
         default:
           sendResponse(undefined);
       }
+      })();
+      return true; // async response
     });
 
     // ═══════════════════════════════════════════════════════════════════
@@ -658,6 +712,7 @@ export default defineBackground({
           send({ type: "page_context_update", pageContext: ctx });
         }
       } catch {}
+      queryPageMods();
     });
 
     // Detect navigation to update page context (critical for chrome:// etc. where content script doesn't run)
@@ -675,6 +730,7 @@ export default defineBackground({
             send({ type: "page_context_update", pageContext: ctx });
           }
         }).catch(() => {});
+        queryPageMods();
       }
     });
 

@@ -89,27 +89,145 @@ export default defineContentScript({
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    //  Page Modification Engine
+    //  Page Modification Engine (full-replacement model, persisted per origin)
     // ═══════════════════════════════════════════════════════════════════
+    //
+    //  Each origin has a single CSS snapshot stored in chrome.storage.local
+    //  under key `pi_page_css` as { [origin]: { css, applied, updatedAt } }.
+    //  The DOM holds exactly one <style id="pi-page-css"> reflecting that
+    //  snapshot. All CSS-producing tools (modify_page_css, toggle_dark_mode,
+    //  highlight_elements, remove_elements) update this single snapshot.
 
+    const PAGE_CSS_KEY = "local:pi_page_css";
+    const STYLE_TAG_ID = "pi-page-css";
+    const DARK_RULES = `\nhtml { filter: invert(1) hue-rotate(180deg); background: #fff; }\nimg, video, canvas, svg, [style*="background-image"] { filter: invert(1) hue-rotate(180deg); }\n`;
+    const DARK_MARKER = "/* pi-dark-mode */";
+
+    /** Read the per-origin CSS snapshot from storage. */
+    async function readOriginMods(): Promise<{ css: string; applied: boolean } | null> {
+      try {
+        const all = await chrome.storage.local.get(PAGE_CSS_KEY);
+        const map = all[PAGE_CSS_KEY] || {};
+        return map[location.origin] ?? null;
+      } catch {
+        return null;
+      }
+    }
+
+    /** Write the per-origin CSS snapshot to storage and report new status. */
+    async function writeOriginMods(css: string, applied: boolean): Promise<void> {
+      try {
+        const all = await chrome.storage.local.get(PAGE_CSS_KEY);
+        const map = all[PAGE_CSS_KEY] || {};
+        map[location.origin] = { css, applied, updatedAt: Date.now() };
+        await chrome.storage.local.set({ [PAGE_CSS_KEY]: map });
+      } catch { /* ignore quota errors */ }
+      reportPageModsStatus();
+    }
+
+    /** Remove this origin's snapshot from storage. */
+    async function clearOriginMods(): Promise<void> {
+      try {
+        const all = await chrome.storage.local.get(PAGE_CSS_KEY);
+        const map = all[PAGE_CSS_KEY] || {};
+        delete map[location.origin];
+        await chrome.storage.local.set({ [PAGE_CSS_KEY]: map });
+      } catch { /* ignore */ }
+      reportPageModsStatus();
+    }
+
+    /** Ensure the single <style id="pi-page-css"> exists with the given CSS. */
+    function applyCssToDom(css: string): void {
+      let style = document.getElementById(STYLE_TAG_ID) as HTMLStyleElement | null;
+      if (!style) {
+        style = document.createElement("style");
+        style.id = STYLE_TAG_ID;
+        (document.head || document.documentElement).appendChild(style);
+      }
+      style.textContent = css;
+    }
+
+    /** Remove the page CSS style tag from the DOM. */
+    function removeCssFromDom(): void {
+      document.getElementById(STYLE_TAG_ID)?.remove();
+    }
+
+    /**
+     * Append a CSS fragment to the current snapshot and persist.
+     * The full-replacement model: there is only ever one snapshot per origin.
+     */
+    async function appendCss(fragment: string): Promise<void> {
+      const current = await readOriginMods();
+      const existing = current?.css ?? "";
+      const next = existing ? `${existing.trimEnd()}\n${fragment}\n` : `${fragment}\n`;
+      applyCssToDom(next);
+      await writeOriginMods(next, true);
+    }
+
+    /** Report the current origin's mod status to the background (for UI). */
+    function reportPageModsStatus(): void {
+      readOriginMods().then((mods) => {
+        chrome.runtime.sendMessage({
+          type: "page_mods_status",
+          origin: location.origin,
+          count: mods?.css?.trim() ? 1 : 0,
+          applied: mods?.applied ?? false,
+          css: mods?.css ?? "",
+        }).catch(() => {});
+      }).catch(() => {});
+    }
+
+    /** Restore persisted CSS on page load. */
+    async function restoreMods(): Promise<void> {
+      const mods = await readOriginMods();
+      if (mods?.css?.trim() && mods.applied) {
+        applyCssToDom(mods.css);
+      }
+      reportPageModsStatus();
+    }
+    restoreMods();
+
+    // Legacy in-memory mods for non-CSS tools (modify_page_style, etc.)
     interface Mod {
       id: string;
       revert(): void;
     }
-
     const mods: Mod[] = [];
 
-    function addStyle(css: string, id?: string): string {
-      const style = document.createElement("style");
-      const sid = id ?? `pi-${Date.now()}`;
-      style.id = sid;
-      style.textContent = css;
-      document.head.appendChild(style);
-      mods.push({ id: sid, revert: () => style.remove() });
-      return sid;
+    /** Whitelisted computed-style properties returned by read_element_styles. */
+    const STYLE_WHITELIST = [
+      // box model
+      "display", "position", "top", "right", "bottom", "left", "z-index",
+      "width", "height", "min-width", "max-width", "min-height", "max-height",
+      "padding", "margin",
+      "border", "border-width", "border-color", "border-style", "border-radius",
+      // flex / grid
+      "flex-direction", "flex-wrap", "justify-content", "align-items", "align-self",
+      "flex-grow", "flex-shrink", "flex-basis", "gap",
+      "grid-template-columns", "grid-template-rows", "grid-column", "grid-row",
+      // typography
+      "font-family", "font-size", "font-weight", "font-style", "line-height",
+      "letter-spacing", "text-align", "text-decoration", "text-transform", "white-space",
+      // color / background
+      "color", "background", "background-color", "background-image",
+      // effects
+      "opacity", "box-shadow", "overflow", "cursor", "transform", "transition",
+    ];
+
+    /** Collect `--*` custom properties in scope on an element (design tokens). */
+    function collectCssVars(el: Element, cap: number): string[] {
+      const cs = getComputedStyle(el);
+      const out: string[] = [];
+      for (let i = 0; i < cs.length && out.length < cap; i++) {
+        const p = cs.item(i);
+        if (!p.startsWith("--")) continue;
+        const v = cs.getPropertyValue(p).trim();
+        if (v) out.push(`${p}: ${v}`);
+      }
+      return out;
     }
 
-    function execTool(toolName: string, args: Record<string, unknown>): { text: string; isError?: boolean } {
+    async function execTool(toolName: string, args: Record<string, unknown>): Promise<{ text: string; isError?: boolean }> {
       try {
         switch (toolName) {
           case "read_page_content": {
@@ -138,15 +256,56 @@ export default defineContentScript({
           }
 
           case "modify_page_css": {
-            const revertable = args.revertable !== false;
-            if (revertable) {
-              addStyle(args.css as string);
-            } else {
-              const style = document.createElement("style");
-              style.textContent = args.css as string;
-              document.head.appendChild(style);
+            // Full-replacement model: append to the single persisted snapshot.
+            await appendCss(args.css as string);
+            return { text: "✅ CSS applied (saved for this site)" };
+          }
+
+          case "read_current_css": {
+            // Returns ONLY pi's own injected snapshot (NOT the site's CSS).
+            const mods = await readOriginMods();
+            if (!mods?.css?.trim()) {
+              return { text: "(pi has injected no CSS for this site yet)" };
             }
-            return { text: "✅ CSS applied" };
+            return { text: `# pi's injected CSS for ${location.origin}\n\n\`\`\`css\n${mods.css}\n\`\`\`` };
+          }
+
+          case "read_element_styles": {
+            const selector = (args.selector as string)?.trim();
+            if (!selector) {
+              return { text: "❌ selector is required", isError: true };
+            }
+            const el = document.querySelector<HTMLElement>(selector);
+            if (!el) {
+              return { text: `❌ No element matches \"${selector}\"`, isError: true };
+            }
+            const cs = getComputedStyle(el);
+            const cls = el.getAttribute("class");
+            const lines: string[] = [];
+            lines.push(`# Element: <${el.tagName.toLowerCase()}${el.id ? "#" + el.id : ""}${cls ? "." + cls.split(/\\s+/).join(".") : ""}>`);
+            const inline = el.getAttribute("style");
+            if (inline) lines.push(`Inline style: ${inline}`);
+            lines.push("");
+            lines.push("## Computed styles:");
+            for (const prop of STYLE_WHITELIST) {
+              const v = cs.getPropertyValue(prop);
+              if (v) lines.push(`${prop}: ${v}`);
+            }
+            // CSS variables in scope on this element
+            const vars = collectCssVars(el, 50);
+            if (vars.length) {
+              lines.push("");
+              lines.push(`## CSS variables in scope (${vars.length}${vars.length === 50 ? "+" : ""}):`);
+              lines.push(...vars);
+            }
+            // :root design tokens (always useful as the site's design system)
+            const rootVars = collectCssVars(document.documentElement, 30);
+            if (rootVars.length) {
+              lines.push("");
+              lines.push(`## :root design tokens (${rootVars.length}${rootVars.length === 30 ? "+" : ""}):`);
+              lines.push(...rootVars);
+            }
+            return { text: lines.join("\n") };
           }
 
           case "modify_page_style": {
@@ -177,18 +336,26 @@ export default defineContentScript({
 
           case "toggle_dark_mode": {
             const enable = args.enable as boolean | undefined;
-            const existing = document.getElementById("pi-dark");
-            if (enable === false || (enable === undefined && existing)) {
-              existing?.remove();
+            const current = await readOriginMods();
+            const css = current?.css ?? "";
+            const hasDark = css.includes(DARK_MARKER);
+            const shouldTurnOn = enable === true || (enable === undefined && !hasDark);
+            if (shouldTurnOn && !hasDark) {
+              await appendCss(`${DARK_MARKER}${DARK_RULES}`);
+              return { text: "🌙 Dark mode on" };
+            }
+            if (!shouldTurnOn && hasDark) {
+              const next = css.split(DARK_MARKER)[0].trimEnd();
+              if (next.trim()) {
+                applyCssToDom(next);
+                await writeOriginMods(next, true);
+              } else {
+                removeCssFromDom();
+                await clearOriginMods();
+              }
               return { text: "☀️ Dark mode off" };
             }
-            if (!existing) {
-              addStyle(`
-                html { filter: invert(1) hue-rotate(180deg); background: #fff; }
-                img, video, canvas, svg, [style*="background-image"] { filter: invert(1) hue-rotate(180deg); }
-              `, "pi-dark");
-            }
-            return { text: "🌙 Dark mode on" };
+            return { text: hasDark ? "🌙 Dark mode already on" : "☀️ Dark mode already off" };
           }
 
           case "highlight_elements": {
@@ -201,24 +368,26 @@ export default defineContentScript({
                 : `outline: 3px solid ${color} !important; outline-offset: 2px !important;`;
               return `${s} { ${v} }`;
             }).join("\n");
-            addStyle(css);
+            await appendCss(css);
             return { text: `✅ Highlighted ${selectors.length} set(s)` };
           }
 
           case "remove_elements": {
             const selectors = args.selectors as string[];
             const css = selectors.map((s) => `${s} { display: none !important; }`).join("\n");
-            addStyle(css);
+            await appendCss(css);
             return { text: `✅ Hidden ${selectors.length} set(s)` };
           }
 
           case "revert_page_modifications": {
-            let n = 0;
-            for (let i = mods.length - 1; i >= 0; i--) {
-              try { mods[i].revert(); n++; } catch { /* skip */ }
+            // Full-replacement model: clear the entire per-origin snapshot.
+            const current = await readOriginMods();
+            if (!current?.css?.trim()) {
+              return { text: "ℹ️ No saved CSS to revert" };
             }
-            mods.length = 0;
-            return { text: `↩️ Reverted ${n} modification(s)` };
+            removeCssFromDom();
+            await clearOriginMods();
+            return { text: "↩️ Reverted all CSS for this site" };
           }
 
           case "inject_script": {
@@ -242,11 +411,50 @@ export default defineContentScript({
     // ═══════════════════════════════════════════════════════════════════
 
     chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+      // Return true to keep the channel open for async cases below.
+      (async () => {
       try {
         switch (msg.type) {
           case "get_page_context":
             sendResponse({ pageContext: getPageContext() });
             break;
+
+          case "get_page_mods_status": {
+            const mods = await readOriginMods();
+            sendResponse({
+              origin: location.origin,
+              count: mods?.css?.trim() ? 1 : 0,
+              applied: mods?.applied ?? false,
+              css: mods?.css ?? "",
+            });
+            break;
+          }
+
+          case "toggle_page_mods": {
+            let action = msg.action as "on" | "off" | "toggle";
+            const mods = await readOriginMods();
+            if (!mods?.css?.trim()) {
+              sendResponse({ ok: false, reason: "no CSS saved" });
+              break;
+            }
+            if (action === "toggle") action = mods.applied ? "off" : "on";
+            if (action === "off") {
+              removeCssFromDom();
+              await writeOriginMods(mods.css, false);
+            } else {
+              applyCssToDom(mods.css);
+              await writeOriginMods(mods.css, true);
+            }
+            sendResponse({ ok: true });
+            break;
+          }
+
+          case "revert_page_mods": {
+            removeCssFromDom();
+            await clearOriginMods();
+            sendResponse({ ok: true });
+            break;
+          }
 
           case "get_element_coords": {
             const sel = msg.selector as string;
@@ -280,7 +488,7 @@ export default defineContentScript({
           }
 
           case "execute_tool": {
-            const result = execTool(msg.toolName, msg.args);
+            const result = await execTool(msg.toolName, msg.args);
             sendResponse({
               content: [{ type: "text" as const, text: result.text }],
               isError: result.isError ?? false,
@@ -298,6 +506,8 @@ export default defineContentScript({
           isError: true,
         });
       }
+      })();
+      return true; // async response
     });
 
     // ═══════════════════════════════════════════════════════════════════

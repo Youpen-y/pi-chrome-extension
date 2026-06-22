@@ -64,6 +64,26 @@ export interface AppState {
   isProcessing: boolean;
   bridgeVersion?: string;
   error?: string;
+  /** Page style mods for the current tab's origin (null = unknown/loading). */
+  pageMods: PageModsStatus | null;
+}
+
+export interface PageModsStatus {
+  /** Current origin (e.g. "https://github.com"). */
+  origin: string;
+  /** Whether any CSS is saved for this origin. */
+  count: number;
+  /** Whether the saved CSS is currently applied to the DOM. */
+  applied: boolean;
+  /** The full CSS snapshot (empty string if none). */
+  css: string;
+}
+
+/** Page mods stored per-origin in local:pi_page_css. */
+export interface StoredPageMods {
+  css: string;
+  applied: boolean;
+  updatedAt: number;
 }
 
 // ─── Storage Keys ───────────────────────────────────────────────────────
