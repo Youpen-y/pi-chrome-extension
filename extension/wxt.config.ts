@@ -2,6 +2,9 @@ import { defineConfig } from "wxt";
 
 // See https://wxt.dev/api/config.html
 export default defineConfig({
+  // Chrome 的"加载已解压扩展"选择器默认隐藏点开头目录，
+  // 所以输出到不带点的 output/ 而非 WXT 默认的 .output/。
+  outDir: "output",
   extensionApi: "chrome",
   modules: [],
   manifestVersion: 3,

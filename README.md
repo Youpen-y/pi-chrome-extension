@@ -103,13 +103,13 @@ npm install
 npm run dev
 ```
 
-WXT 会在 `.output/chrome-mv3/` 目录生成开发构建。
+WXT 会在 `output/chrome-mv3/` 目录生成构建产物（不带点的 `output/`，这样 Chrome 的目录选择器能直接看到）。
 
 **加载到 Chrome：**
 1. 打开 `chrome://extensions`
 2. 打开右上角 **开发者模式**
 3. 点击 **加载已解压的扩展**
-4. 选择 `extension/.output/chrome-mv3/` 目录
+4. 选择 `extension/output/chrome-mv3/` 目录
 5. 确认图标已出现在工具栏
 
 **生产构建：**

@@ -23,6 +23,9 @@ export class BridgeServer {
   private httpServer: Server | null = null;
   private agent: PiAgent | null = null;
   private connections = new Set<WebSocket>();
+  /** Idempotency guard: stop() may be invoked twice (double SIGINT under tsx watch). */
+  private stopping = false;
+  private stopPromise: Promise<void> | null = null;
 
   constructor(config: BridgeConfig) {
     this.config = config;
@@ -105,6 +108,16 @@ export class BridgeServer {
    * Stop the bridge server gracefully.
    */
   async stop(): Promise<void> {
+    // Idempotent: concurrent callers share the same shutdown. This prevents the
+    // double-SIGINT under `tsx watch` from running close()/dispose() twice and
+    // racing itself.
+    if (this.stopping) return this.stopPromise ?? Promise.resolve();
+    this.stopping = true;
+    this.stopPromise = this.doStop();
+    return this.stopPromise;
+  }
+
+  private async doStop(): Promise<void> {
     console.log("[bridge] Shutting down...");
 
     // Force exit after 3s no matter what

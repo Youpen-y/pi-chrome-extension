@@ -12,16 +12,16 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "^0.79.0",
-    "@earendil-works/pi-coding-agent": "^0.79.0",
+    "@earendil-works/pi-ai": "^0.80.2",
+    "@earendil-works/pi-coding-agent": "^0.80.2",
     "typebox": "^1.1.0",
-    "ws": "^8.18.0",
-    "uuid": "^9.0.0"
+    "uuid": "^9.0.0",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
-    "@types/ws": "^8.5.13",
-    "@types/uuid": "^10.0.0",
     "@types/node": "^22.10.0",
+    "@types/uuid": "^10.0.0",
+    "@types/ws": "^8.5.13",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0"
   }

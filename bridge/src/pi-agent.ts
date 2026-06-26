@@ -16,10 +16,12 @@ import {
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
-import { getModel } from "@earendil-works/pi-ai";
+// getModel moved off the pi-ai root entrypoint in 0.80.0; use the /compat
+// re-export (deprecated but supported until the ModelManager migration).
+import { getModel } from "@earendil-works/pi-ai/compat";
 import { Type } from "typebox";
-import { StringEnum } from "@earendil-works/pi-ai";
-import type { AgentSession, AgentSessionEvent, ThinkingLevel, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { StringEnum, type ImageContent, type ThinkingLevel } from "@earendil-works/pi-ai";
+import type { AgentSession, AgentSessionEvent, ToolDefinition } from "@earendil-works/pi-coding-agent";
 
 import type { BridgeConfig } from "./config.js";
 import { buildPageSystemPrompt } from "./context.js";
@@ -49,7 +51,7 @@ export class PiAgent {
   // Pending tool call resolvers: toolCallId -> resolve function
   private pendingTools = new Map<
     string,
-    (result: { content: { type: "text"; text: string }[]; isError?: boolean }) => void
+    (result: { content: { type: "text"; text: string }[]; details: unknown; isError?: boolean }) => void
   >();
 
   /** Track whether we've injected page context into this session */
@@ -76,7 +78,7 @@ export class PiAgent {
     // ── Find model ───────────────────────────────────────────────────
     let model = undefined;
     if (config.defaultProvider && config.defaultModel) {
-      model = getModel(config.defaultProvider, config.defaultModel);
+      model = getModel(config.defaultProvider as any, config.defaultModel);
       if (!model) {
         console.warn(`[bridge] Model ${config.defaultProvider}/${config.defaultModel} not found, using default`);
       }
@@ -151,9 +153,10 @@ export class PiAgent {
       fullMessage = message;
     }
 
-    const imageContents = images?.map((img) => ({
-      type: "image" as const,
-      source: { type: "base64" as const, mediaType: img.mimeType, data: img.data },
+    const imageContents: ImageContent[] | undefined = images?.map((img) => ({
+      type: "image",
+      data: img.data,
+      mimeType: img.mimeType,
     }));
 
     await this.session.prompt(fullMessage, { images: imageContents });
@@ -201,11 +204,12 @@ export class PiAgent {
    */
   resolveTool(
     toolCallId: string,
-    result: { content: { type: "text"; text: string }[]; isError?: boolean },
+    result: { content: { type: "text"; text: string }[]; details?: unknown; isError?: boolean },
   ): void {
     const resolve = this.pendingTools.get(toolCallId);
     if (resolve) {
-      resolve(result);
+      // AgentToolResult requires details; bridge has no structured details to send back.
+      resolve({ details: undefined, ...result });
       this.pendingTools.delete(toolCallId);
     } else {
       console.warn(`[bridge] No pending tool call for id: ${toolCallId}`);
@@ -273,7 +277,7 @@ export class PiAgent {
       promptGuidelines,
       parameters,
       async execute(toolCallId, params, _signal, _onUpdate, _ctx) {
-        forward(toolCallId, name, params);
+        forward(toolCallId, name, params as Record<string, unknown>);
         return new Promise((resolve) => {
           pending.set(toolCallId, resolve);
         });

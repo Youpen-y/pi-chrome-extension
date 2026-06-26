@@ -5,7 +5,9 @@ node_modules/
 # Build output
 dist/
 .output/
-output/
+
+# Extension build (WXT outDir 配置为 output/)
+extension/output/
 *.zip
 
 # Extension build

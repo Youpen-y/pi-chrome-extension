@@ -5,7 +5,10 @@
  * Based on pi RPC protocol but extended for browser-specific operations.
  */
 
-import type { AgentMessage, ToolResultContentBlock, ThinkingLevel } from "@earendil-works/pi-coding-agent";
+import type { ThinkingLevel } from "@earendil-works/pi-ai";
+
+/** Content block of a tool result. Bridge only ever forwards text results. */
+export type ToolResultContentBlock = { type: "text"; text: string };
 
 // ─── WebSocket Protocol ─────────────────────────────────────────────────────
 
@@ -29,7 +32,7 @@ export type BridgeToExtension =
   | { type: "auth_error"; message: string }
   | { type: "response"; command: string; success: boolean; error?: string; data?: unknown }
   | { type: "agent_start" }
-  | { type: "agent_end"; messages?: AgentMessage[] }
+  | { type: "agent_end"; messages?: unknown[] }
   | { type: "turn_start" }
   | { type: "turn_end" }
   | { type: "message_update"; assistantMessageEvent: AssistantMessageEvent }

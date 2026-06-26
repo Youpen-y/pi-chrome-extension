@@ -31,8 +31,14 @@ async function main() {
 
   const server = new BridgeServer(config);
 
-  // Graceful shutdown — exit immediately, let force-timeout in stop() do cleanup
+  // Graceful shutdown — guarded against double-invocation. Under `tsx watch`, a
+  // Ctrl-C delivers SIGINT both directly to the child (process-group signal) and
+  // again via tsx's own forwarding. Without idempotency, stop() runs twice and
+  // races itself, keeping the process alive past tsx's 5s kill window.
+  let shuttingDown = false;
   const shutdown = (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     console.log(`\n[bridge] Received ${signal}, shutting down...`);
     server.stop().catch(() => {});
     // Exit immediately — stop() has its own 3s force timeout
