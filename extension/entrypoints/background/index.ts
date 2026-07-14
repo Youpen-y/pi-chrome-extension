@@ -264,9 +264,18 @@ export default defineBackground({
           break;
         }
 
-        case "tool_call":
-          forwardToolCall(msg.toolCallId, msg.toolName, msg.args).catch(console.error);
+        case "tool_execution_start":
+          // Unified 🔧 indicator for ALL tools — including bridge-side ones
+          // (safe_read / list_dir) that execute in the bridge and never trigger
+          // a tool_call/forward. SDK emits this before every tool executes.
           pushToolMessage({ id: crypto.randomUUID(), role: "tool", content: `🔧 ${msg.toolName}…`, timestamp: Date.now() });
+          break;
+
+        case "tool_call":
+          // Forward to content script for execution. The 🔧 indicator is shown
+          // via tool_execution_start above (covers every tool uniformly), so we
+          // only forward here — no duplicate pushToolMessage.
+          forwardToolCall(msg.toolCallId, msg.toolName, msg.args).catch(console.error);
           break;
 
         case "error":
