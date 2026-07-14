@@ -484,7 +484,17 @@
       }
     }
 
-    connectState();
+    // Initialize the state connection once. Guard against script re-execution
+    // (e.g. WXT HMR / chunk reload) creating duplicate ports + listeners, which
+    // is the most likely cause of the intermittent duplicated-text bug.
+    // Legitimate reconnects still work: they go through the onDisconnect →
+    // setTimeout(connectState) path inside the function, not this top-level call.
+    if (window.__piStateConnected) {
+      console.warn("[pi] state connection already initialized — skipping");
+    } else {
+      window.__piStateConnected = true;
+      connectState();
+    }
 
     // ─── Add a summarize loading state ────────────────────────────
     let summarizeTimeout = null;
