@@ -26,6 +26,8 @@ import type { AgentSession, AgentSessionEvent, ToolDefinition } from "@earendil-
 import type { BridgeConfig } from "./config.js";
 import { buildPageSystemPrompt } from "./context.js";
 import type { PageContext } from "./types.js";
+import { processPdfBytes, base64ToPdfBytes, buildPdfSummary } from "./pdf.js";
+
 
 /** Callback for streaming text deltas to the client */
 export type TextDeltaCallback = (delta: string) => void;
@@ -48,10 +50,15 @@ export class PiAgent {
   private options: PiAgentOptions;
   private config: BridgeConfig;
 
-  // Pending tool call resolvers: toolCallId -> resolve function
+  // Pending tool call resolvers: toolCallId -> resolve function.
+  // Content may include image blocks (produced bridge-side, e.g. PDF page renders).
   private pendingTools = new Map<
     string,
-    (result: { content: { type: "text"; text: string }[]; details: unknown; isError?: boolean }) => void
+    (result: {
+      content: ({ type: "text"; text: string } | { type: "image"; data: string; mimeType: string })[];
+      details: unknown;
+      isError?: boolean;
+    }) => void
   >();
 
   /** Track whether we've injected page context into this session */
@@ -204,7 +211,11 @@ export class PiAgent {
    */
   resolveTool(
     toolCallId: string,
-    result: { content: { type: "text"; text: string }[]; details?: unknown; isError?: boolean },
+    result: {
+      content: ({ type: "text"; text: string } | { type: "image"; data: string; mimeType: string })[];
+      details?: unknown;
+      isError?: boolean;
+    },
   ): void {
     const resolve = this.pendingTools.get(toolCallId);
     if (resolve) {
@@ -261,7 +272,40 @@ export class PiAgent {
     const forward = this.options.forwardToolCall;
     const pending = this.pendingTools;
 
-    // Helper: create a tool that forwards and waits
+    type ToolResult = {
+      content: ({ type: "text"; text: string } | { type: "image"; data: string; mimeType: string })[];
+      details: unknown;
+      isError?: boolean;
+    };
+
+    /** Marker the content script prepends to a text block when the page is a PDF,
+     *  so the bridge can fetch+parse it via clawpdf instead of returning garbage. */
+    const PDF_MARKER = "PI_PDF_V1::";
+
+    /** Detect a PDF-forwarded text block and extract via clawpdf (text + fallback images). */
+    const handlePdfIfPresent = async (result: ToolResult): Promise<ToolResult> => {
+      const textBlock = result.content.find((c) => c.type === "text") as
+        | { type: "text"; text: string }
+        | undefined;
+      if (!textBlock || !textBlock.text.startsWith(PDF_MARKER)) return result;
+      try {
+        const base64 = textBlock.text.slice(PDF_MARKER.length);
+        const bytes = base64ToPdfBytes(base64);
+        const pdf = await processPdfBytes(bytes);
+        const summary = buildPdfSummary(pdf, "current page");
+        const content: ToolResult["content"] = [{ type: "text", text: summary }, ...pdf.images];
+        return { ...result, content };
+      } catch (err) {
+        return {
+          ...result,
+          content: [{ type: "text", text: `❌ PDF extraction failed: ${(err as Error).message}` }],
+          isError: true,
+        };
+      }
+    };
+
+    // Helper: create a tool that forwards and waits. Optional postProcess hook
+    // runs after the extension returns a result (used by read_page_content for PDFs).
     const browserTool = (
       name: string,
       label: string,
@@ -269,6 +313,7 @@ export class PiAgent {
       parameters: any,
       promptSnippet?: string,
       promptGuidelines?: string[],
+      postProcess?: (result: ToolResult) => Promise<ToolResult>,
     ): ToolDefinition => ({
       name,
       label,
@@ -278,24 +323,26 @@ export class PiAgent {
       parameters,
       async execute(toolCallId, params, _signal, _onUpdate, _ctx) {
         forward(toolCallId, name, params as Record<string, unknown>);
-        return new Promise((resolve) => {
+        const result = await new Promise<ToolResult>((resolve) => {
           pending.set(toolCallId, resolve);
         });
+        return postProcess ? await postProcess(result) : result;
       },
     });
 
-    return [
-      // ── Read Tools ────────────────────────────────────────────
+    return [      // ── Read Tools ────────────────────────────────────────────
       browserTool(
         "read_page_content", "Read Page Content",
-        "Read the full article content from the current web page using Readability. " +
-        "Returns cleaned article text, title, excerpt, and metadata.",
-        Type.Object({}, { description: "Reads the current page content." }),
+        "Read the full content of the current web page. Handles both regular HTML pages (via Readability) and PDF documents (text extraction, with automatic page-image rendering for scanned PDFs via the vision model). " +
+        "Returns cleaned article text for HTML, or extracted text + page images for PDFs.",
+        Type.Object({}, { description: "Reads the current page content (HTML or PDF)." }),
         "Read and analyze the current webpage's content",
         [
           "Use read_page_content when the user asks questions about page details.",
           "Use read_page_content when initial context was truncated and you need the full article.",
+          "Works on PDFs too: if the page is a PDF, text is extracted automatically; scanned PDFs get page images rendered for you.",
         ],
+        handlePdfIfPresent,
       ),
 
       browserTool(

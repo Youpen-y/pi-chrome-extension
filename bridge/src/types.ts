@@ -7,8 +7,11 @@
 
 import type { ThinkingLevel } from "@earendil-works/pi-ai";
 
-/** Content block of a tool result. Bridge only ever forwards text results. */
-export type ToolResultContentBlock = { type: "text"; text: string };
+/** Content block of a tool result. Extension only ever sends text; image blocks
+ *  are produced bridge-side (e.g. PDF page renders forwarded to the vision model). */
+export type ToolResultContentBlock =
+  | { type: "text"; text: string }
+  | { type: "image"; data: string; mimeType: string };
 
 // ─── WebSocket Protocol ─────────────────────────────────────────────────────
 

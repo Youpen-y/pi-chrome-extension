@@ -13,6 +13,7 @@ import type {
   ExtensionToBridge,
   BridgeToExtension,
   ToolCallRequest,
+  ToolResultContentBlock,
   PageContext,
 } from "./types.js";
 import { v4 as uuid } from "uuid";
@@ -378,7 +379,7 @@ export class BridgeServer {
 
   private handleToolResult(
     toolCallId: string,
-    content: { type: "text"; text: string }[],
+    content: ToolResultContentBlock[],
     isError?: boolean,
   ): void {
     if (!this.agent) return;

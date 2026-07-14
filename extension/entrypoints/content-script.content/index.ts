@@ -43,6 +43,14 @@ export default defineContentScript({
         meta: getMetaTags(),
       };
 
+      // PDF pages have no DOM text — surface a hint so the AI knows to call
+      // read_page_content (which fetches bytes and extracts via the bridge).
+      if (isPdfPage()) {
+        ctx.textContent = "[This page is a PDF document. Call read_page_content to extract its text.]";
+        ctx.length = 0;
+        return ctx;
+      }
+
       if (ReadabilityCtor) {
         const result = extractArticle();
         if (result) {
@@ -227,10 +235,45 @@ export default defineContentScript({
       return out;
     }
 
+    /** Detect whether the current page is a PDF rendered by Chrome's built-in viewer.
+     *  Chrome loads the URL as-is but renders it via PDFium, so the DOM has no
+     *  article text — we must fetch the raw bytes and let the bridge parse them. */
+    function isPdfPage(): boolean {
+      if (document.contentType === "application/pdf") return true;
+      // Fallbacks: some embed/object layouts also indicate PDF.
+      const embed = document.querySelector("embed[type='application/pdf'], object[type='application/pdf']");
+      return !!embed;
+    }
+
+    /** Fetch the current PDF as base64 (same-origin, so cookies/auth travel). */
+    async function fetchPdfAsBase64(): Promise<string> {
+      const resp = await fetch(location.href, { credentials: "include" });
+      if (!resp.ok) {
+        throw new Error(`PDF fetch failed: ${resp.status} ${resp.statusText}`);
+      }
+      const blob = await resp.blob();
+      return await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(reader.error ?? new Error("FileReader error"));
+        reader.readAsDataURL(blob);
+      });
+    }
+
     async function execTool(toolName: string, args: Record<string, unknown>): Promise<{ text: string; isError?: boolean }> {
       try {
         switch (toolName) {
           case "read_page_content": {
+            // PDF pages have no DOM text — fetch raw bytes and let the bridge
+            // extract via clawpdf (text + image fallback for scanned docs).
+            if (isPdfPage()) {
+              try {
+                const base64 = await fetchPdfAsBase64();
+                return { text: `PI_PDF_V1::${base64}` };
+              } catch (err) {
+                return { text: `❌ Failed to fetch PDF: ${(err as Error).message}`, isError: true };
+              }
+            }
             const ctx = getPageContext();
             return { text: `# ${ctx.title}\n\n${ctx.textContent || ctx.content || ""}` };
           }
