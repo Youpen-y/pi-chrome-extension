@@ -1,5 +1,7 @@
 # pi Browser Companion
 
+[English](./README.md) | **中文**
+
 **pi Browser Companion** 是一个 Chrome 扩展，将 [pi coding agent](https://pi.dev) 的能力带入浏览器。在浏览网页时与 pi 实时协作：
 
 - **📄 总结与对话** — 提取网页正文生成摘要，围绕内容深入交流
