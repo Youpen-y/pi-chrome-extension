@@ -27,7 +27,8 @@ export type ExtensionToBridge =
   | { type: "get_state" }
   | { type: "new_session" }
   | { type: "set_model"; provider: string; modelId: string }
-  | { type: "set_thinking_level"; level: ThinkingLevel };
+  | { type: "set_thinking_level"; level: ThinkingLevel }
+  | { type: "set_language"; language: string };
 
 /** Messages from Bridge → Extension */
 export type BridgeToExtension =

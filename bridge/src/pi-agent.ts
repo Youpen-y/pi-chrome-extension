@@ -149,6 +149,8 @@ export class PiAgent {
   private hasInjectedContext = false;
   /** Track last page URL to detect navigation */
   private lastPageUrl: string | undefined;
+  /** Reply language preference ("auto" = follow user/page language). */
+  private language = "auto";
 
   constructor(options: PiAgentOptions) {
     this.options = options;
@@ -245,6 +247,13 @@ export class PiAgent {
       fullMessage = message;
     }
 
+    // Inject the reply-language preference into every prompt. The system prompt
+    // is cached at session creation, so setLanguage can't affect it retroactively;
+    // prepending here guarantees the current value is honored on each turn.
+    if (this.language !== "auto") {
+      fullMessage = `(Respond in ${this.language}.)\n\n${fullMessage}`;
+    }
+
     const imageContents: ImageContent[] | undefined = images?.map((img) => ({
       type: "image",
       data: img.data,
@@ -330,6 +339,11 @@ export class PiAgent {
    */
   setThinkingLevel(level: ThinkingLevel): void {
     this.session?.setThinkingLevel(level);
+  }
+
+  /** Set the reply language ("auto" follows user/page; any other value forces it). */
+  setLanguage(language: string): void {
+    this.language = (language || "").trim() || "auto";
   }
 
   /**
@@ -708,7 +722,7 @@ You can read the page, tweak its look, and chat about what's on it.
 - Get straight to the point. No fluffy intros or wrap-ups.
 - Summaries should be crisp — a few paragraphs max.
 - When modifying the page, just do it and briefly mention what changed.
-- Match the user's language. If they speak Chinese, respond in Chinese.
+- ${this.language === "auto" ? "Match the user's language. If they speak Chinese, respond in Chinese." : "Always respond in " + this.language + "."}
 - Think out loud in your \`thinking\` blocks, but keep the final response tight.
 - **Math:** wrap inline math in $...$ (e.g. $E=mc^2$) and display math in $$...$$ on its own lines. Always pair $ correctly. Don't use bare $ for non-math (prices/shell vars) — write "5 USD" or \`$HOME\` in a code span instead.
 - No emoji overload. A well-placed emoji is fine, but don't sound like a cheerleader.

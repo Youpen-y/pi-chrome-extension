@@ -299,6 +299,10 @@ export class BridgeServer {
         this.agent?.setThinkingLevel(msg.level);
         break;
 
+      case "set_language":
+        this.agent?.setLanguage(msg.language);
+        break;
+
       default:
         this.sendJson(ws, {
           type: "error",

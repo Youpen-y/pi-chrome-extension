@@ -24,6 +24,7 @@ export default defineBackground({
       messages: [],
       isProcessing: false,
       pageMods: null,
+      language: "auto",
     };
 
     // Connected side panel ports. We broadcast both full-state snapshots and
@@ -89,6 +90,10 @@ export default defineBackground({
 
     async function getBridgeToken(): Promise<string | undefined> {
       return (await storage.getItem<string>("local:pi_bridge_token")) ?? undefined;
+    }
+
+    async function getLanguage(): Promise<string> {
+      return (await storage.getItem<string>("local:pi_language")) ?? "auto";
     }
 
     let discoveredPort: number | null = null;
@@ -174,6 +179,9 @@ export default defineBackground({
           patch({ pageContext: ctx });
           send({ type: "page_context_update", pageContext: ctx });
         }
+        // Sync the saved language preference so the bridge applies it on connect.
+        const lang = await getLanguage();
+        send({ type: "set_language", language: lang });
       };
 
       ws.onmessage = (e: MessageEvent) => {
@@ -612,8 +620,8 @@ export default defineBackground({
               pushMessage({ id: crypto.randomUUID(), role: "system", content: "⚠️ 无法获取页面内容，请确保页面已完全加载。", timestamp: Date.now() });
               return;
             }
-            pushMessage({ id: crypto.randomUUID(), role: "user", content: "请用中文总结这个页面", timestamp: Date.now() });
-            send({ type: "prompt", message: "请用中文总结这个页面", pageContext: ctx });
+            pushMessage({ id: crypto.randomUUID(), role: "user", content: "Summarize this page", timestamp: Date.now() });
+            send({ type: "prompt", message: "Summarize this page", pageContext: ctx });
           });
           sendResponse(true);
           return true;
@@ -651,6 +659,17 @@ export default defineBackground({
           patch({ pageMods: { origin: msg.origin, count: msg.count, applied: msg.applied, css: msg.css } as PageModsStatus });
           sendResponse(true);
           break;
+
+        case "set_language": {
+          const lang = (msg.language as string || "").trim() || "auto";
+          await storage.setItem("local:pi_language", lang);
+          patch({ language: lang });
+          if (ws?.readyState === WebSocket.OPEN) {
+            send({ type: "set_language", language: lang });
+          }
+          sendResponse(true);
+          break;
+        }
 
         case "toggle_page_mods": {
           // Forward to content script of active tab.

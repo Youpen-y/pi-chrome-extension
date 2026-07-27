@@ -380,6 +380,11 @@
           </div>
         </div>
         <div class="settings-field">
+          <label>Language</label>
+          <div class="settings-desc">Reply language. Use “auto” to follow the page/user, or set a specific language (e.g. 中文, English, 日本語).</div>
+          <input type="text" id="settingsLanguage" placeholder="auto" spellcheck="false" />
+        </div>
+        <div class="settings-field">
           <label>Page Styles</label>
           <div class="settings-desc" id="pageModsDesc">CSS modifications for this site. None saved yet.</div>
           <pre class="page-mods-preview" id="pageModsPreview"></pre>
@@ -834,6 +839,7 @@
     // ─── Settings Overlay ─────────────────────────────────────────
     const settingsOverlay = document.getElementById("settingsOverlay");
     const settingsBridgeUrl = document.getElementById("settingsBridgeUrl");
+    const settingsLanguage = document.getElementById("settingsLanguage");
     const settingsToken = document.getElementById("settingsToken");
     const settingsSave = document.getElementById("settingsSave");
     const settingsTest = document.getElementById("settingsTest");
@@ -843,6 +849,7 @@
     async function openSettings() {
       settingsBridgeUrl.value = (await storage.getItem("local:pi_bridge_url")) ?? "ws://127.0.0.1:18731";
       settingsToken.value = (await storage.getItem("local:pi_bridge_token")) ?? "";
+      settingsLanguage.value = (await storage.getItem("local:pi_language")) ?? "auto";
       settingsStatus.textContent = "";
       settingsStatus.className = "settings-status";
       settingsOverlay.classList.add("open");
@@ -866,6 +873,9 @@
     settingsSave.addEventListener("click", async () => {
       await storage.setItem("local:pi_bridge_url", settingsBridgeUrl.value.trim());
       await storage.setItem("local:pi_bridge_token", settingsToken.value.trim());
+      const lang = settingsLanguage.value.trim() || "auto";
+      await storage.setItem("local:pi_language", lang);
+      chrome.runtime.sendMessage({ type: "set_language", language: lang }).catch(() => {});
       chrome.runtime.sendMessage({ type: "reconnect" }).catch(() => {});
       settingsStatus.textContent = "✓ Saved — reconnecting…";
       settingsStatus.className = "settings-status ok";

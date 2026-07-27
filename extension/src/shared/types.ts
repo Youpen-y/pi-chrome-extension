@@ -66,6 +66,8 @@ export interface AppState {
   error?: string;
   /** Page style mods for the current tab's origin (null = unknown/loading). */
   pageMods: PageModsStatus | null;
+  /** Reply language preference ("auto" = follow user/page language). */
+  language: string;
 }
 
 export interface PageModsStatus {
@@ -91,4 +93,5 @@ export interface StoredPageMods {
 export const STORAGE_KEYS = {
   BRIDGE_URL: "pi_bridge_url",
   BRIDGE_TOKEN: "pi_bridge_token",
+  LANGUAGE: "pi_language",
 } as const;
