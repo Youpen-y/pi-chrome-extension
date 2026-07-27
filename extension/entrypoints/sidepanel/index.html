@@ -409,7 +409,14 @@
 
   <script type="module">
     import { marked } from "marked";
+    import "katex/dist/katex.min.css";
+    import markedKatex from "marked-katex-extension";
     import { storage } from "wxt/utils/storage";
+
+    // Render $...$ (inline) and $$...$$ (block) math via KaTeX. nonStandard lets
+    // us parse $...$ even when not surrounded by spaces (AI output is often
+    // $E=mc^2$ glued to text). throwOnError falls back to raw text on failure.
+    marked.use(markedKatex({ throwOnError: false, nonStandard: true }));
 
     // ─── Font Scale (global) ───────────────────────────────────────
     const FONT_SCALE_KEY = "local:pi_font_scale";
