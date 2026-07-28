@@ -193,6 +193,40 @@ cd extension && npm run build
 
 Bridge 改动由 tsx watch 自动重载；扩展改动需在 `chrome://extensions` 点 🔄 重新加载。
 
+## 后台运行
+
+日常使用无需保留终端窗口，可将 bridge 注册为 **systemd 用户服务**：
+
+```bash
+cd bridge
+
+# 安装（build + 写入 service 单元 + 重载 systemd）
+./scripts/install-service.sh
+
+# 立即启动并设置开机自启
+systemctl --user enable --now pi-bridge
+
+# 查看状态
+systemctl --user status pi-bridge
+
+# 查看日志
+journalctl --user -u pi-bridge -f
+
+# 停止 / 关闭自启
+systemctl --user stop  pi-bridge
+systemctl --user disable pi-bridge
+
+# 完全移除服务
+./scripts/uninstall-service.sh
+```
+
+服务以生产模式运行 `node bridge/dist/index.js`，崩溃后自动重启。
+
+> **macOS / Windows**：systemd 仅限 Linux。替代方案：
+> - **macOS**：使用 `launchd`（在 `~/Library/LaunchAgents/` 下放一个 `.plist`）
+> - **Windows**：使用 NSSM 或任务计划程序
+> - **通用**：`nohup node dist/index.js > bridge.log 2>&1 &`（简单但无自动重启）
+
 ## License
 
 MIT

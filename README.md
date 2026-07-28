@@ -193,6 +193,40 @@ cd extension && npm run build
 
 Bridge changes auto-reload via tsx watch; extension changes need a 🔄 reload at `chrome://extensions`.
 
+## Run as a background service
+
+For daily use without keeping a terminal open, register the bridge as a **systemd user service**:
+
+```bash
+cd bridge
+
+# Install (builds + writes the service unit + reloads systemd)
+./scripts/install-service.sh
+
+# Start now and enable auto-start on login
+systemctl --user enable --now pi-bridge
+
+# Check status
+systemctl --user status pi-bridge
+
+# Watch logs
+journalctl --user -u pi-bridge -f
+
+# Later, to stop / disable
+systemctl --user stop  pi-bridge
+systemctl --user disable pi-bridge
+
+# To fully remove the service
+./scripts/uninstall-service.sh
+```
+
+The service runs `node bridge/dist/index.js` in production mode and auto-restarts on failure.
+
+> **macOS / Windows**: systemd is Linux-only. Alternatives:
+> - **macOS**: use `launchd` (a `.plist` under `~/Library/LaunchAgents/`)
+> - **Windows**: use NSSM or the built-in Task Scheduler
+> - **Any OS**: `nohup node dist/index.js > bridge.log 2>&1 &` (simple but no auto-restart)
+
 ## License
 
 MIT
