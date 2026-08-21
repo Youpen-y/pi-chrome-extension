@@ -2,6 +2,8 @@
 
 [English](./README.md) | **中文**
 
+> 浏览器长期自成一体，与操作系统割裂。**pi Browser Companion** 旨在弥合这一鸿沟。
+
 **pi Browser Companion** 是一个 Chrome 扩展，将 [pi coding agent](https://pi.dev) 的能力带入浏览器。在浏览网页时与 pi 实时协作：
 
 - **📄 总结与对话** — 提取网页正文生成摘要，围绕内容深入交流
@@ -13,34 +15,25 @@
 
 ## 系统架构
 
-```
-┌─ Browser (Chrome) ─────────────────────────────┐
-│  ┌───────────────┐  ┌────────────┐             │
-│  │  Side Panel   │  │ Content    │             │
-│  │  (聊天界面)    │  │ Script     │             │
-│  └───────┬───────┘  └─────┬──────┘             │
-│          │ chrome.runtime  │                    │
-│   ┌──────▼──────────────▼──────┐               │
-│   │  Background Service Worker │               │
-│   │  (消息路由 + WS 客户端)     │               │
-│   └────────────┬──────────────┘               │
-└────────────────┼───────────────────────────────┘
-                 │ WebSocket (JSONL)
-┌────────────────▼───────────────────────────────┐
-│  Local Bridge Service (Node.js)                │
-│  ┌────────────┐  ┌──────────────────────────┐  │
-│  │ WS Server  │◄─┤  pi SDK                   │  │
-│  │ (ws@8)     │  │  ─ AgentSession           │  │
-│  └────────────┘  │  ─ Custom Tools (18)      │  │
-│                   │  ─ clawpdf (PDF)          │  │
-│                   └─────────────┬────────────┘  │
-│                                 ▼               │
-│                    ┌──────────────────┐         │
-│                    │  LLM             │         │
-│                    │  (zai/openai/    │         │
-│                    │   anthropic/...) │         │
-│                    └──────────────────┘         │
-└────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph Browser["Browser (Chrome)"]
+        SP["Side Panel<br>(聊天界面)"]
+        CS["Content Script"]
+        BG["Background Service Worker<br>(消息路由 + WS 客户端)"]
+        SP -->|"chrome.runtime"| BG
+        CS -->|"chrome.runtime"| BG
+    end
+
+    BG <-->|"WebSocket (JSONL)"| WSS
+
+    subgraph Bridge["Local Bridge Service (Node.js)"]
+        WSS["WS Server (ws@8)"]
+        SDK["pi SDK<br>AgentSession · Custom Tools (18) · clawpdf (PDF)"]
+        WSS <--> SDK
+    end
+
+    SDK --> LLM["LLM (zai / openai / anthropic / …)"]
 ```
 
 三层架构：**扩展 ↔ Bridge（本地 Node 服务，WebSocket）↔ pi SDK / LLM**。所有 LLM 处理在本地 Bridge 运行，扩展只负责浏览器交互。
@@ -144,7 +137,8 @@ pi 通过自定义工具与浏览器/本地交互。内置的 `read`/`bash`/`edi
 
 ```
 pi-chrome-extension/
-├── ARCHITECTURE.md                # 架构文档
+├── docs/
+│   └── ARCHITECTURE.md           # 架构文档
 ├── bridge/                        # 本地桥接服务
 │   └── src/
 │       ├── config.ts              # 配置 + 环境变量
@@ -226,6 +220,11 @@ systemctl --user disable pi-bridge
 > - **macOS**：使用 `launchd`（在 `~/Library/LaunchAgents/` 下放一个 `.plist`）
 > - **Windows**：使用 NSSM 或任务计划程序
 > - **通用**：`nohup node dist/index.js > bridge.log 2>&1 &`（简单但无自动重启）
+
+## 致谢
+
+- **[pi](https://github.com/earendil-works/pi)**：本项目构建于 pi coding agent 及其 SDK 之上
+- **[Summarize](https://github.com/steipete/summarize)**：侧边栏总结网页、与页面内容对话的体验受该项目启发
 
 ## License
 

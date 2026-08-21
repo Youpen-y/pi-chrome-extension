@@ -2,45 +2,38 @@
 
 **English** | [中文](./README.zh-CN.md)
 
+> The browser has long been a system of its own, cut off from the operating system. **pi Browser Companion** bridges that gap.
+
 **pi Browser Companion** is a Chrome extension that brings the [pi coding agent](https://pi.dev) into your browser. Collaborate with pi in real time while you browse:
 
-- **📄 Summarize & chat** — extract page content, generate summaries, discuss what's on the page
-- **🎨 Modify pages** — let pi adjust styles, layout, and visuals (CSS persists per-site, reapplied on refresh)
-- **📑 PDF support** — auto-extract PDF text; scanned PDFs render page images for the vision model
-- **📁 Local files** — controlled `safe_read` / `list_dir` with hard filtering of sensitive paths (`~/.ssh`, `auth.json`, `.env`, …)
-- **➗ Math** — KaTeX renders `$...$` / `$$...$$`
-- **🌐 Language** — set the reply language (`auto` to follow the page, or `中文` / `English` / …)
+- **📄 Summarize & chat**: extract page content, generate summaries, discuss what's on the page
+- **🎨 Modify pages**: let pi adjust styles, layout, and visuals (CSS persists per-site, reapplied on refresh)
+- **📑 PDF support**: auto-extract PDF text; scanned PDFs render page images for the vision model
+- **📁 Local files**: controlled `safe_read` / `list_dir` with hard filtering of sensitive paths (`~/.ssh`, `auth.json`, `.env`, …)
+- **➗ Math**: KaTeX renders `$...$` / `$$...$$`
+- **🌐 Language**: set the reply language (`auto` to follow the page, or `中文` / `English` / …)
 
 ## Architecture
 
-```
-┌─ Browser (Chrome) ─────────────────────────────┐
-│  ┌───────────────┐  ┌────────────┐             │
-│  │  Side Panel   │  │ Content    │             │
-│  │  (chat UI)    │  │ Script     │             │
-│  └───────┬───────┘  └─────┬──────┘             │
-│          │ chrome.runtime  │                    │
-│   ┌──────▼──────────────▼──────┐               │
-│   │  Background Service Worker │               │
-│   │  (routing + WS client)     │               │
-│   └────────────┬──────────────┘               │
-└────────────────┼───────────────────────────────┘
-                 │ WebSocket (JSONL)
-┌────────────────▼───────────────────────────────┐
-│  Local Bridge Service (Node.js)                │
-│  ┌────────────┐  ┌──────────────────────────┐  │
-│  │ WS Server  │◄─┤  pi SDK                   │  │
-│  │ (ws@8)     │  │  ─ AgentSession           │  │
-│  └────────────┘  │  ─ Custom Tools (18)      │  │
-│                   │  ─ clawpdf (PDF)          │  │
-│                   └─────────────┬────────────┘  │
-│                                 ▼               │
-│                    ┌──────────────────┐         │
-│                    │  LLM             │         │
-│                    │  (zai/openai/    │         │
-│                    │   anthropic/...) │         │
-│                    └──────────────────┘         │
-└────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph Browser["Browser (Chrome)"]
+        SP["Side Panel<br>(chat UI)"]
+        CS["Content Script"]
+        BG["Background Service Worker<br>(routing + WS client)"]
+        SP -->|"chrome.runtime"| BG
+        CS -->|"chrome.runtime"| BG
+    end
+
+    BG <-->|"WebSocket (JSONL)"| WSS
+
+    subgraph Bridge["Local Bridge Service (Node.js)"]
+        WSS["WS Server (ws@8)"]
+        SDK["pi SDK<br>AgentSession · Custom Tools (18) · clawpdf (PDF)"]
+        WSS <--> SDK
+    end
+
+    SDK --> LLM["LLM (zai / openai / anthropic / …)"]
 ```
 
 Three layers: **Extension ↔ Bridge (local Node service, WebSocket) ↔ pi SDK / LLM**. All LLM processing runs locally in the Bridge; the extension only handles browser interaction.
@@ -54,7 +47,7 @@ Three layers: **Extension ↔ Bridge (local Node service, WebSocket) ↔ pi SDK 
 | Node.js 22+ | to run the Bridge |
 | pi auth | `~/.pi/agent/auth.json` (set up via `pi auth login`; supports zai / opencode / github-copilot / anthropic / openai …) |
 
-> The Bridge discovers credentials under `~/.pi/agent/` via `AuthStorage.create()` — no API key needed in the extension.
+> The Bridge discovers credentials under `~/.pi/agent/` via `AuthStorage.create()`, so no API key is needed in the extension.
 
 ### 1. Build & run the Bridge
 
@@ -93,7 +86,7 @@ If it shows disconnected on first open, click the banner to reconnect, or check 
 
 ## Agent tools (18)
 
-pi interacts with the browser / local FS through custom tools. The built-in `read` / `bash` / `edit` / `write` are disabled (`safe_read` replaces `read`; the rest are fully off) — the agent cannot run a shell or modify local files.
+pi interacts with the browser / local FS through custom tools. The built-in `read` / `bash` / `edit` / `write` are disabled (`safe_read` replaces `read`; the rest are fully off), so the agent cannot run a shell or modify local files.
 
 ### 📖 Read
 | Tool | What it does |
@@ -135,7 +128,7 @@ pi interacts with the browser / local FS through custom tools. The built-in `rea
 
 ## Security design
 
-- **Capability minimization**: `bash` / `edit` / `write` disabled — no shell, no file modification
+- **Capability minimization**: `bash` / `edit` / `write` are disabled (no shell, no file modification)
 - **`safe_read` defense in depth**: ① capability layer disables dangerous tools → ② tool layer hard-filters sensitive paths (code-level guarantee) → ③ instruction layer (system prompt) constrains behavior
 - **Anti prompt injection**: the system prompt tells the agent to act only on chat messages, ignoring "read this file" instructions embedded in web content
 - **No exfiltration**: file contents must never be written into the page or sent to external URLs
@@ -144,7 +137,8 @@ pi interacts with the browser / local FS through custom tools. The built-in `rea
 
 ```
 pi-chrome-extension/
-├── ARCHITECTURE.md                # architecture doc
+├── docs/
+│   └── ARCHITECTURE.md           # architecture doc
 ├── bridge/                        # local bridge service
 │   └── src/
 │       ├── config.ts              # config + env vars
@@ -226,6 +220,11 @@ The service runs `node bridge/dist/index.js` in production mode and auto-restart
 > - **macOS**: use `launchd` (a `.plist` under `~/Library/LaunchAgents/`)
 > - **Windows**: use NSSM or the built-in Task Scheduler
 > - **Any OS**: `nohup node dist/index.js > bridge.log 2>&1 &` (simple but no auto-restart)
+
+## Acknowledgments
+
+- **[pi](https://github.com/earendil-works/pi)** for the coding agent and SDK this project is built on
+- **[Summarize](https://github.com/steipete/summarize)** for the inspiration behind the side-panel experience of summarizing and chatting with web pages
 
 ## License
 
