@@ -6,6 +6,8 @@
 
 **pi Browser Companion** 是一个 Chrome 扩展，将 [pi coding agent](https://pi.dev) 的能力带入浏览器。在浏览网页时与 pi 实时协作：
 
+https://github.com/user-attachments/assets/5f98813f-d0d6-484a-ac95-dae7d73055e0
+
 - **📄 总结与对话** — 提取网页正文生成摘要，围绕内容深入交流
 - **🎨 修改页面** — 让 pi 调整样式、布局、视觉表现（CSS 持久化，刷新自动恢复）
 - **📑 PDF 支持** — 自动提取 PDF 文本，扫描版 PDF 渲染页面图片给视觉模型

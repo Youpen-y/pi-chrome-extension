@@ -6,6 +6,8 @@
 
 **pi Browser Companion** is a Chrome extension that brings the [pi coding agent](https://pi.dev) into your browser. Collaborate with pi in real time while you browse:
 
+https://github.com/user-attachments/assets/5f98813f-d0d6-484a-ac95-dae7d73055e0
+
 - **📄 Summarize & chat**: extract page content, generate summaries, discuss what's on the page
 - **🎨 Modify pages**: let pi adjust styles, layout, and visuals (CSS persists per-site, reapplied on refresh)
 - **📑 PDF support**: auto-extract PDF text; scanned PDFs render page images for the vision model
